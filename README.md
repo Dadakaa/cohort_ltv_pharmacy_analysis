@@ -99,3 +99,79 @@ order by days_in_month
 |2021-08-01|2021-08-01|2021-08-31|31|
 
 
+## 3. Расчёт накопительного LTV по когортам
+
+1. Для каждого клиента определяется когорта (месяц совершения первой покупки). Далее рассчитывается номер месяца жизни клиента (`num_of_months`) относительно месяца первой покупки.
+
+2. Расчет среднего LTV выполняется как сумма покупок клиентов когорты за соответствующий период, деленная на количество клиентов в когорте.
+
+3. Пустые значения означают, что когорта ещё не достигла соответствующего возраста на момент проведения анализа.
+
+В итоговой таблице представлены значения накопительного LTV:
+
+* `cohort` — месяц первой покупки клиента (когорта)
+* `cohort_clients` — количество клиентов в когорте
+* `m0` — средний LTV за первый месяц жизни клиента
+* `m1` — средний накопительный LTV за первые два месяца жизни клиента
+* `m2` — средний накопительный LTV за первые три месяца жизни клиента
+* `m3` — средний накопительный LTV за первые четыре месяца жизни клиента
+* и т.д
+
+``` sql
+/*==================================================
+  Описание: Когортный анализ
+==================================================*/
+
+with pre_data as(
+	select
+		card,
+		first_value(date_trunc('month', datetime)::date) over(partition by card order by date_trunc('month', datetime)::date) cohort,
+		date_trunc('month', datetime)::date as month,
+		summ_with_disc
+	from checks_filtered
+), pre_data_2 as(
+	select
+		card,
+		month,
+		cohort,
+		(extract(year from month) - extract(year from cohort)) * 12 + 
+		extract(month from month) - extract(month from cohort) num_of_months,
+		summ_with_disc
+	from pre_data
+	where cohort not in ('2021-07-01', '2022-06-01')
+)
+
+select
+	cohort,
+	count(distinct card) as cohort_clients,
+	round(sum(case when num_of_months <= 0 then summ_with_disc end) / count(distinct card)) m0,
+	round(case when max(num_of_months) > 0 then sum(case when num_of_months <= 1 then summ_with_disc end) / count(distinct card) end) m1,
+	round(case when max(num_of_months) > 1 then sum(case when num_of_months <= 2 then summ_with_disc end) / count(distinct card) end) m2,
+	round(case when max(num_of_months) > 2 then sum(case when num_of_months <= 3 then summ_with_disc end) / count(distinct card) end) m3,
+	round(case when max(num_of_months) > 3 then sum(case when num_of_months <= 4 then summ_with_disc end) / count(distinct card) end) m4,
+	round(case when max(num_of_months) > 4 then sum(case when num_of_months <= 5 then summ_with_disc end) / count(distinct card) end) m5,
+	round(case when max(num_of_months) > 5 then sum(case when num_of_months <= 6 then summ_with_disc end) / count(distinct card) end) m6,
+	round(case when max(num_of_months) > 6 then sum(case when num_of_months <= 7 then summ_with_disc end) / count(distinct card) end) m7,
+	round(case when max(num_of_months) > 7 then sum(case when num_of_months <= 8 then summ_with_disc end) / count(distinct card) end) m8,
+	round(case when max(num_of_months) > 8 then sum(case when num_of_months <= 9 then summ_with_disc end) / count(distinct card) end) m9,
+	round(case when max(num_of_months) > 9 then sum(case when num_of_months <= 10 then summ_with_disc end) / count(distinct card) end) m10
+from pre_data_2
+group by cohort
+order by cohort
+```
+
+<h4 align="center">Полученные результаты</h4>
+
+|cohort|cohort_clients|m0|m1|m2|m3|m4|m5|m6|m7|m8|m9|m10|
+|------|--------------|--|--|--|--|--|--|--|--|--|--|---|
+|2021-08-01|686|1137|1494|1878|2229|2571|2893|3201|3588|3829|4059|4121|
+|2021-09-01|627|1300|1792|2159|2538|2876|3152|3502|3761|4004|4058||
+|2021-10-01|563|1345|1739|2167|2553|2850|3067|3305|3500|3550|||
+|2021-11-01|498|1442|1802|2122|2408|2647|2860|3050|3109||||
+|2021-12-01|509|1256|1509|1776|1946|2141|2298|2347|||||
+|2022-01-01|458|1261|1580|2029|2283|2510|2565||||||
+|2022-02-01|402|1359|1770|1978|2224|2261|||||||
+|2022-03-01|432|1561|1808|2066|2111||||||||
+|2022-04-01|543|1307|1743|1845|||||||||
+|2022-05-01|402|1344|1475||||||||||
+
